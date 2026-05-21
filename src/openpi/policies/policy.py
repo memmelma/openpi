@@ -62,7 +62,9 @@ class Policy(BasePolicy):
         else:
             # JAX model setup
             self._sample_actions = nnx_utils.module_jit(model.sample_actions)
-            self._rng = rng or jax.random.key(0)
+            # `rng or key(0)` raises TypeError on JAX PRNGKey scalars (bool() not
+            # defined on unsized arrays). Use explicit None check.
+            self._rng = jax.random.key(0) if rng is None else rng
 
     @override
     def infer(self, obs: dict, *, noise: np.ndarray | None = None) -> dict:  # type: ignore[misc]
