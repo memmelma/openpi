@@ -66,6 +66,16 @@ class Policy(BasePolicy):
             # defined on unsized arrays). Use explicit None check.
             self._rng = jax.random.key(0) if rng is None else rng
 
+    def reset_rng(self, seed: int) -> None:
+        """Reset the JAX RNG to ``jax.random.key(seed)``.
+
+        Lets eval clients reproduce/vary noise across episodes without bouncing
+        the server. JAX-only; no-op for PyTorch models since they use the global
+        torch RNG.
+        """
+        if not self._is_pytorch_model:
+            self._rng = jax.random.key(seed)
+
     @override
     def infer(self, obs: dict, *, noise: np.ndarray | None = None) -> dict:  # type: ignore[misc]
         t_all = time.monotonic()

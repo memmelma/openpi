@@ -59,6 +59,8 @@ class WebsocketPolicyServer:
             await self._single_handler(websocket)
         elif path == "/infer_batch":
             await self._batch_handler(websocket)
+        elif path == "/reset":
+            await self._reset_handler(websocket)
         else:
             logger.warning(f"Unknown websocket path '{path}', closing connection")
             await websocket.close(
@@ -205,6 +207,39 @@ class WebsocketPolicyServer:
                     reason="Internal server error. Traceback included in previous frame.",
                 )
                 raise
+
+
+    async def _reset_handler(self, websocket: _server.ServerConnection):
+        """Reset the policy RNG to ``jax.random.key(seed)``.
+
+        Single-request handler: client sends ``{"seed": int}``, server resets
+        the policy and replies ``{"ok": True, "seed": <int>}``. Lets eval
+        clients reseed between episodes without bouncing the server.
+        """
+        if not hasattr(self._policy, "reset_rng"):
+            await websocket.close(
+                code=websockets.frames.CloseCode.POLICY_VIOLATION,
+                reason="Policy does not implement reset_rng.",
+            )
+            return
+
+        packer = msgpack_numpy.Packer()
+        try:
+            raw = await websocket.recv()
+            msg = msgpack_numpy.unpackb(raw)
+            seed = int(msg["seed"])
+            self._policy.reset_rng(seed)
+            logger.info(f"Reset RNG to key({seed})")
+            await websocket.send(packer.pack({"ok": True, "seed": seed}))
+        except websockets.ConnectionClosed:
+            logger.info(f"Reset connection from {websocket.remote_address} closed")
+        except Exception:
+            await websocket.send(traceback.format_exc())
+            await websocket.close(
+                code=websockets.frames.CloseCode.INTERNAL_ERROR,
+                reason="Internal server error. Traceback included in previous frame.",
+            )
+            raise
 
 
 def _log_timing(

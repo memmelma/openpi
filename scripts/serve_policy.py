@@ -141,7 +141,7 @@ def main(args: Args) -> None:
     hostname = socket.gethostname()
     local_ip = socket.gethostbyname(hostname)
     logging.info("Creating server (host: %s, ip: %s)", hostname, local_ip)
-    logging.info("Exposed websocket paths: / (single infer), /infer_batch (batched infer), /healthz")
+    logging.info("Exposed websocket paths: / (single infer), /infer_batch (batched infer), /reset (rng reset), /healthz")
 
     server = websocket_policy_server.WebsocketPolicyServer(
         policy=policy,
