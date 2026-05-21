@@ -3,6 +3,7 @@ import os
 import pathlib
 from typing import Any
 
+import jax
 import jax.numpy as jnp
 
 import openpi.models.model as _model
@@ -22,6 +23,8 @@ def create_trained_policy(
     default_prompt: str | None = None,
     norm_stats: dict[str, transforms.NormStats] | None = None,
     pytorch_device: str | None = None,
+    seed: int | None = None,
+    zero_noise: bool = False,
 ) -> _policy.Policy:
     """Create a policy from a trained checkpoint.
 
@@ -72,8 +75,29 @@ def create_trained_policy(
         except ImportError:
             pytorch_device = "cpu"
 
+    rng = jax.random.key(seed) if seed is not None else None
+
+    # If zero_noise, replace the sampled-Gaussian initial noise of pi0/pi05's
+    # flow-matching denoise with the mean of N(0,I)=0. The denoise loop is a
+    # deterministic ODE given a fixed initial point; using zeros makes
+    # ``sample_actions`` a deterministic function of the observation alone.
+    # Shape (action_horizon, action_dim); ``Policy.infer/infer_batch`` broadcasts
+    # to (B, H, D) at call time.
+    if zero_noise:
+        sample_kwargs = dict(sample_kwargs or {})
+        H = getattr(model, "action_horizon", None)
+        D = getattr(model, "action_dim", None)
+        if H is None or D is None:
+            raise ValueError("zero_noise=True requires model.action_horizon and model.action_dim to be set.")
+        if is_pytorch:
+            import torch
+            sample_kwargs["noise"] = torch.zeros((H, D), device=pytorch_device or "cpu")
+        else:
+            sample_kwargs["noise"] = jnp.zeros((H, D))
+
     return _policy.Policy(
         model,
+        rng=rng,
         transforms=[
             *repack_transforms.inputs,
             transforms.InjectDefaultPrompt(default_prompt),

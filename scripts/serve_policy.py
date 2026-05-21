@@ -51,6 +51,16 @@ class Args:
     port: int = 8000
     # Record the policy's behavior for debugging.
     record: bool = False
+    # Initial RNG seed for the policy (JAX). When None, openpi defaults to
+    # jax.random.key(0). Setting this lets eval clients reproduce or vary the
+    # noise stream across cold-boot servers without patching openpi.
+    seed: int | None = None
+    # If True, replace the sampled Gaussian initial noise of pi0/pi05's flow-
+    # matching denoise loop with zeros (the mean of N(0,I)). The denoise loop
+    # is then a deterministic ODE driven only by the observation: identical
+    # observations at the same model weights produce bit-identical actions,
+    # eliminating openpi-side stochasticity entirely.
+    zero_noise: bool = False
 
     # Specifies how to load the policy. If not provided, the default policy for the environment will be used.
     policy: Checkpoint | Default = dataclasses.field(default_factory=Default)
@@ -81,11 +91,21 @@ DEFAULT_CHECKPOINT: dict[EnvMode, Checkpoint] = {
 }
 
 
-def create_default_policy(env: EnvMode, *, default_prompt: str | None = None) -> _policy.Policy:
+def create_default_policy(
+    env: EnvMode,
+    *,
+    default_prompt: str | None = None,
+    seed: int | None = None,
+    zero_noise: bool = False,
+) -> _policy.Policy:
     """Create a default policy for the given environment."""
     if checkpoint := DEFAULT_CHECKPOINT.get(env):
         return _policy_config.create_trained_policy(
-            _config.get_config(checkpoint.config), checkpoint.dir, default_prompt=default_prompt
+            _config.get_config(checkpoint.config),
+            checkpoint.dir,
+            default_prompt=default_prompt,
+            seed=seed,
+            zero_noise=zero_noise,
         )
     raise ValueError(f"Unsupported environment mode: {env}")
 
@@ -95,10 +115,19 @@ def create_policy(args: Args) -> _policy.Policy:
     match args.policy:
         case Checkpoint():
             return _policy_config.create_trained_policy(
-                _config.get_config(args.policy.config), args.policy.dir, default_prompt=args.default_prompt
+                _config.get_config(args.policy.config),
+                args.policy.dir,
+                default_prompt=args.default_prompt,
+                seed=args.seed,
+                zero_noise=args.zero_noise,
             )
         case Default():
-            return create_default_policy(args.env, default_prompt=args.default_prompt)
+            return create_default_policy(
+                args.env,
+                default_prompt=args.default_prompt,
+                seed=args.seed,
+                zero_noise=args.zero_noise,
+            )
 
 
 def main(args: Args) -> None:

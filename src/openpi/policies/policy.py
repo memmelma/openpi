@@ -90,6 +90,16 @@ class Policy(BasePolicy):
             if noise.ndim == 2:
                 noise = noise[None, ...]
             sample_kwargs["noise"] = noise
+        # Broadcast any pre-set 2D noise on the policy itself (e.g. zero-noise
+        # mode constructed at server startup with shape ``(action_horizon,
+        # action_dim)``) up to the current call's batch dim. ``sample_actions``
+        # expects ``(B, H, D)`` and does not broadcast internally.
+        if "noise" in sample_kwargs and sample_kwargs["noise"] is not None and sample_kwargs["noise"].ndim == 2:
+            n = sample_kwargs["noise"]
+            if self._is_pytorch_model:
+                sample_kwargs["noise"] = n.unsqueeze(0)
+            else:
+                sample_kwargs["noise"] = n[None, ...]
 
         observation = _model.Observation.from_dict(inputs)
 
@@ -195,6 +205,13 @@ class Policy(BasePolicy):
                     f"noise batch dim ({noise_arr.shape[0]}) does not match obs batch dim ({batch_size})"
                 )
             sample_kwargs["noise"] = noise_arr
+        # Same broadcast for pre-set 2D noise on the policy (zero-noise mode).
+        if "noise" in sample_kwargs and sample_kwargs["noise"] is not None and sample_kwargs["noise"].ndim == 2:
+            n = sample_kwargs["noise"]
+            if self._is_pytorch_model:
+                sample_kwargs["noise"] = n.unsqueeze(0).expand(batch_size, *n.shape)
+            else:
+                sample_kwargs["noise"] = jnp.broadcast_to(n[None, ...], (batch_size, *n.shape))
 
         observation = _model.Observation.from_dict(inputs)
 
